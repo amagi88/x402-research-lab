@@ -1,0 +1,31 @@
+{
+  "name": "x402-research-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "client": "node src/client.ts",
+    "mcp": "node src/mcp.ts",
+    "typecheck": "tsc --noEmit",
+    "check:sdk": "node src/check-sdk.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@x402/core": "2.25.0",
+    "@x402/evm": "2.25.0",
+    "@x402/express": "2.25.0",
+    "@x402/fetch": "2.25.0",
+    "express": "5.2.1",
+    "viem": "2.56.5",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2"
+  }
+}

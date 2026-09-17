@@ -1,0 +1,21 @@
+name: x402-research-lab
+services:
+  server:
+    build: .
+    ports:
+      - "127.0.0.1:4021:4021"
+    volumes:
+      - ./src:/app/src
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4021/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  client:
+    build: .
+    profiles: ["tools"]
+    command: ["npm", "run", "client"]
+    environment:
+      API_URL: http://server:4021
+    volumes:
+      - ./src:/app/src
