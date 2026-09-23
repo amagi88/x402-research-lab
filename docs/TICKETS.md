@@ -29,18 +29,18 @@ Base Sepolia上のERC-20送金Transactionを診断する、有料MCP Toolを作�
 
 ## MVPで固定する事項
 
-| 項目 | MVPの決定 |
-|---|---|
-| MCP Tool名 | `diagnose_transaction` |
-| 診断対象チェーン | Base Sepolia (`eip155:84532`) |
-| 診断対象 | ERC-20 `transfer` / `transferFrom` |
-| 支払い方式 | x402 v2 `exact` |
-| 支払い通貨 | Base SepoliaのテストUSDC |
-| 価格 | 1診断あたり0.01 USDC相当 |
-| MCP接続 | Streamable HTTP |
-| 診断時間 | 通常時60秒以内 |
-| 原因の確度 | `confirmed` / `probable` / `unknown` |
-| データ保存 | なし |
+| 項目             | MVPの決定                            |
+| ---------------- | ------------------------------------ |
+| MCP Tool名       | `diagnose_transaction`               |
+| 診断対象チェーン | Base Sepolia (`eip155:84532`)        |
+| 診断対象         | ERC-20 `transfer` / `transferFrom`   |
+| 支払い方式       | x402 v2 `exact`                      |
+| 支払い通貨       | Base SepoliaのテストUSDC             |
+| 価格             | 1診断あたり0.01 USDC相当             |
+| MCP接続          | Streamable HTTP                      |
+| 診断時間         | 通常時60秒以内                       |
+| 原因の確度       | `confirmed` / `probable` / `unknown` |
+| データ保存       | なし                                 |
 
 ### 課金境界
 
@@ -90,7 +90,7 @@ T-001 → T-002 → T-003 → T-004 → T-005 → T-006 → T-007
 
 ---
 
-## [ ] T-001: Transaction Diagnosis MCP Serverを起動する
+## [x] T-001: Transaction Diagnosis MCP Serverを起動する
 
 **目的**  
 現在の`/research`用scaffoldを、Transaction診断用MCP Serverへ置き換えます。
@@ -106,10 +106,10 @@ T-001 → T-002 → T-003 → T-004 → T-005 → T-006 → T-007
 
 **完了条件**
 
-- [ ] MCP Clientから接続できる
-- [ ] `tools/list`に`diagnose_transaction`が表示される
-- [ ] Toolを呼ぶと構造化された仮レスポンスが返る
-- [ ] `npm run typecheck`が成功する
+- [x] MCP Clientから接続できる
+- [x] `tools/list`に`diagnose_transaction`が表示される
+- [x] Toolを呼ぶと構造化された仮レスポンスが返る
+- [x] `npm run typecheck`が成功する
 
 **依存**: なし
 

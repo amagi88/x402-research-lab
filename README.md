@@ -1,49 +1,63 @@
-# x402 Research Lab
+# Web3 Transaction Diagnosis Service
 
-WSL: `/home/shunya/projects/x402-research-lab`
+既存のAI AgentからMCP Tool `diagnose_transaction` を呼び出し、Base SepoliaのERC-20送金トランザクションを診断する練習プロジェクトです。完成時にはtxHashから取引状態、送金内容、失敗原因とその根拠、次の対応、開発者向け・顧客向けの説明を返します。x402によるテストUSDCの従量課金もMVPの対象です。画面は作りません。
 
-最新会話（3か月でx402実装・MCP接続・外部成果）に基づく練習環境。完成品の仕様は `docs/ASSIGNMENT.md`。
+実装範囲、順番、完了条件は [docs/TICKETS.md](docs/TICKETS.md) を参照してください。T-001のMCP Serverは動作確認済みです。次はT-002の入出力schemaとエラー形式を実装します。診断と決済は未実装です。
 
-## WSLで直接実行（検証済みの構成）
+## WSLで起動
 
-Node.js 24.14以降を使用します。nvmを使う場合は `nvm use` でバージョンを選択できます。
+Node.js 24.14以上が必要です。nvmを使う場合は、先に使用するNode.jsを選択してください。
 
 ```bash
 cd ~/projects/x402-research-lab
-npm install
+nvm use
+npm ci
 npm run dev
-# 別ターミナルで
-npm run client
-npm run typecheck
-npm run check:sdk
 ```
 
-停止はサーバーのターミナルでCtrl+C。
+サーバーは `http://localhost:4021` で待ち受けます。停止するときは起動したターミナルでCtrl+Cを押します。
 
-## Dockerで実行（エンジン復旧後の代替）
+## 動作確認
 
-Docker Desktop起動・WSL integration有効の状態で:
+以下は別のWSLターミナルで実行します。
 
 ```bash
 cd ~/projects/x402-research-lab
-docker compose up -d --build
+nvm use
+npm run typecheck
 curl -fsS http://localhost:4021/health
-docker compose run --rm client
-docker compose exec server npm run typecheck
-docker compose exec server npm run check:sdk
-docker compose logs -f server
-docker compose stop
 ```
 
-ソース変更はwatchで反映。依存はpackage-lock.jsonで固定。ホストへのnpmは不要。
+`/health` が `OK` を返したら、MCP Toolの一覧を確認します。
 
-現状: Express起動、SDK導入、ClientのHTTP接続のみ。`/research`の501は正常な未実装表示。402・署名・決済・調査・MCPは課題として残している。秘密鍵・faucet資金なしで環境検証できる。
+```bash
+curl -sS -X POST http://localhost:4021/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
 
-`.env.example`は将来の設定項目の見本。現段階では読み込まない。決済課題の実装時に必要なプロセスへ必要な値だけ渡す。購入者の秘密鍵はResource Serverへ渡さない。
+応答の `data:` 行に `diagnose_transaction` が含まれていれば登録できています。次にToolを呼びます。
 
-以前の `~/projects/reward-service` とDBボリュームは保存。今回はDB/Worker不要。必要になったら履歴・冪等性・復旧のために追加する。
+```bash
+curl -sS -X POST http://localhost:4021/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diagnose_transaction","arguments":{"chainId":84532,"txHash":"0xabc"}}}'
+```
 
-公式資料:
-- https://docs.x402.org/getting-started/quickstart-for-sellers
-- https://docs.x402.org/getting-started/quickstart-for-buyers
-- https://github.com/x402-foundation/x402
+現時点の応答は仮実装です。`0xabc` は動作確認用の短い文字列で、実在するtxHashではありません。成功・失敗の判定やオンチェーン調査は行いません。MCPの応答は `event: message` と `data: {...}` の形式で表示されます。`content[0].text` には、`status: "not_implemented"`、`txHash`、`chainId` を含むJSON文字列が返ります。
+
+## Dockerを使う場合
+
+Docker DesktopとWSL integrationが使える環境では、代わりに次の手順でサーバーを起動できます。
+
+```bash
+cd ~/projects/x402-research-lab
+docker compose up -d --build server
+curl -fsS http://localhost:4021/health
+docker compose exec server npm run typecheck
+docker compose down
+```
+
+`src/client.ts`、`src/mcp.ts`、`/research` は旧ウォレット調査用のコードです。現行の診断Toolの動作確認には上記の `/mcp` を使います。
