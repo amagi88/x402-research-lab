@@ -43,10 +43,10 @@ curl -sS -X POST http://localhost:4021/mcp \
 curl -sS -X POST http://localhost:4021/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diagnose_transaction","arguments":{"chainId":84532,"txHash":"0xabc"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diagnose_transaction","arguments":{"chainId":84532,"txHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}'
 ```
 
-現時点の応答は仮実装です。`0xabc` は動作確認用の短い文字列で、実在するtxHashではありません。成功・失敗の判定やオンチェーン調査は行いません。MCPの応答は `event: message` と `data: {...}` の形式で表示されます。`content[0].text` には、`status: "not_implemented"`、`txHash`、`chainId` を含むJSON文字列が返ります。
+現時点の応答は仮実装です。例の64桁のtxHashは入力形式の確認用で、実在する取引とは限りません。成功・失敗の判定やオンチェーン調査は行いません。MCPの応答は `event: message` と `data: {...}` の形式で表示されます。`content[0].text` には、`status: "not_implemented"`、`txHash`、`chainId` を含むJSON文字列が返ります。短い`0xabc`を渡すと、入力検証エラーになります。
 
 ## Dockerを使う場合
 

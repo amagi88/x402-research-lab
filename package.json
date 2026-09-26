@@ -11,6 +11,7 @@
     "client": "node src/client.ts",
     "mcp": "node src/mcp.ts",
     "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
     "check:sdk": "node src/check-sdk.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -28,8 +29,12 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@jest/globals": "^30.5.2",
+    "@swc/core": "^1.16.2",
+    "@swc/jest": "^0.2.39",
     "@types/express": "5.0.6",
     "@types/node": "24.13.4",
+    "jest": "^30.5.2",
     "prettier": "^3.9.9",
     "typescript": "7.0.2"
   }

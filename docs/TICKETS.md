@@ -1,6 +1,7 @@
 # Web3 Transaction Diagnosis Service — MVPチケット
 
-最終更新: 2026-09-17  
+最終更新: 2026-09-27
+
 対象: `/home/shunya/projects/x402-research-lab`
 
 ## このファイルの使い方
@@ -115,46 +116,223 @@ T-001 → T-002 → T-003 → T-004 → T-005 → T-006 → T-007
 
 ---
 
-## [ ] T-002: 入出力schemaとエラー形式を定義する
+## [x] T-002: 入出力schemaとエラー形式を定義する
 
 **目的**  
-後続チケットが同じ契約に従って実装できるようにします。
+後続チケットが同じ契約に従って実装できるようにします。ここでは「入力を拒否するエラー」「診断して判明した結果」「決済時のエラー」を区別します。T-002で形式とschemaを定義し、RPCやx402の実処理は後続チケットで実装します。
 
 **入力**
 
 ```json
 {
   "chainId": 84532,
-  "txHash": "0x..."
+  "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
 }
 ```
 
+**入力検証の順序**
+
+1. `McpServer.registerTool`のZod `inputSchema`で`chainId`をJSONの整数、`txHash`を`0x`に続く64桁の16進数として検証する。欠落、`null`、型違い、小数、短すぎるhash、16進数以外の文字、前後の空白はSDKが`isError: true`のTool結果として返す。16進数の英字は大文字・小文字の両方を許可する。
+2. 入力形式が正しい場合だけTool内でchainIdを確認し、`84532`以外の整数は`UNSUPPORTED_CHAIN`とする。
+3. どちらもRPC問い合わせ前に拒否する。x402導入時は支払い要求より前に同じ検証を実施し、無効な入力を課金しない。入力値や秘密情報を丸ごとログへ出さない。
+
+**診断結果（Tool正常応答）の形式**
+
+MCP `tools/call`の結果は`isError`なし、または`isError: false`にし、`content[0].text`に以下のJSON文字列を入れる。これは**形式を示す架空の成功例**であり、実在するTransactionの診断結果ではない。T-002ではこの契約のTypeScript型・Zod schema・schema testを作る。実データの取得と説明文の生成はT-003〜T-007で実装する。
+
+```json
+{
+  "schemaVersion": "1",
+  "chainId": 84532,
+  "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "success",
+  "code": null,
+  "blockNumber": 12345678,
+  "confirmations": 3,
+  "transfer": {
+    "method": "transfer",
+    "tokenAddress": "0x3333333333333333333333333333333333333333",
+    "symbol": "TKN",
+    "decimals": 6,
+    "intended": {
+      "from": "0x1111111111111111111111111111111111111111",
+      "to": "0x2222222222222222222222222222222222222222",
+      "amountRaw": "1000000"
+    },
+    "observed": [
+      {
+        "from": "0x1111111111111111111111111111111111111111",
+        "to": "0x2222222222222222222222222222222222222222",
+        "amountRaw": "1000000"
+      }
+    ]
+  },
+  "failure": null,
+  "evidence": [
+    { "source": "receipt", "detail": "status=1" },
+    { "source": "event_log", "detail": "Transferイベントを確認" }
+  ],
+  "limitations": [],
+  "recommendedActions": [],
+  "explanations": {
+    "developer": "Receiptのstatusは1で、Transferイベントを確認しました。",
+    "customer": "送金処理の成功を確認しました。"
+  }
+}
+```
+
+**フィールドの意味**
+
+`null`は「この1つの値をまだ得られない、または該当しない」、`[]`は「一覧に入る項目が現時点で0件」を表す。フィールド自体を省略するのではなく、下表の規則に従って値を入れる。
+
+| フィールド           | 何を表すか                                                   | 値がない場合・注意点                                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`      | この診断結果のJSON形式の版                                   | 文字列の`"1"`で固定。MCP Serverのソフトウェア版とは別                                                                                                                                  |
+| `chainId`            | 調べたチェーンの番号                                         | MVPではBase Sepoliaの`84532`                                                                                                                                                           |
+| `txHash`             | 調べたTransactionの識別子                                    | 入力された`0x`＋64桁のhash。Walletアドレスとは別                                                                                                                                       |
+| `status`             | Transactionについて現時点で判明した状態                      | `pending` / `success` / `failed` / `not_found` / `unsupported` / `indeterminate`。`success`はReceipt上の実行成功であり、トークン移動の確認とは別                                       |
+| `code`               | 特別な結果をAgentが機械的に区別するための識別子              | 通常は`null`。`not_found`→`TRANSACTION_NOT_FOUND`、`unsupported`→`UNSUPPORTED_TRANSACTION_TYPE`、`indeterminate`→`DIAGNOSIS_INDETERMINATE`。`pending` / `success` / `failed`では`null` |
+| `blockNumber`        | 取引が取り込まれたBlockの番号                                | 未採掘・未検出など、取得できなければ`null`                                                                                                                                             |
+| `confirmations`      | 取引を含むBlock以降の確認数                                  | 未採掘・未検出なら`null`。得られた場合は非負の整数。数値だけでfinalizedとは断定しない                                                                                                  |
+| `transfer`           | 対象のERC-20送金として読み取れた内容                         | 対象外または解析できなければ`null`。取引全体の成功と送金の実行は分けて見る                                                                                                             |
+| `failure`            | 取引が失敗したときに分かった原因と、その確かさ               | `status: failed`以外は`null`。失敗が確定しても原因不明ならオブジェクトを残し、`reason: null`、`confidence: "unknown"`にする                                                            |
+| `evidence`           | 判定に使ったオンチェーン情報やシミュレーション結果の一覧     | 材料がなければ`[]`。`simulation`は実際の実行を示す直接証拠ではない                                                                                                                     |
+| `limitations`        | この診断で**まだ分からないこと・調査できなかった範囲**の一覧 | 不明点がなければ`[]`。空でも「すべて分かった」という保証ではない。Tool自体のエラーコードとは別                                                                                         |
+| `recommendedActions` | 次に確認・対応するとよいことと、その理由の一覧               | 提案がなければ`[]`。空配列は「再送して安全」という意味ではない                                                                                                                         |
+| `explanations`       | 同じ診断を、開発者向けと顧客向けに説明する文                 | `not_found`や`pending`でも、現時点の状態と次の確認事項を説明する                                                                                                                       |
+
+`transfer`が`null`ではない場合の内訳は次のとおり。
+
+| フィールド                      | 何を表すか                                                       | 値がない場合・注意点                                                                |
+| ------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `transfer.method`               | 呼び出したERC-20関数                                             | `transfer`または`transferFrom`                                                      |
+| `transfer.tokenAddress`         | 対象トークンのContractアドレス                                   | 送金先アドレスではない。`0x`＋40桁のアドレス                                        |
+| `transfer.symbol`               | トークンの表示用略称（例: `USDC`）                               | metadataを取得できなければ`null`。識別にはアドレスを使う                            |
+| `transfer.decimals`             | `amountRaw`を人間向け数量へ換算するときの小数桁数                | metadataを取得できなければ`null`。`0`も有効                                         |
+| `transfer.intended`             | calldataから読み取った、**実行しようとした**送金内容             | 失敗した取引でも残る場合がある。実際に移動した証拠ではない                          |
+| `transfer.intended.from`        | 送金元として指定・推定できたアドレス                             | 確定できなければ`null`。`transferFrom`ではcalldataの`from`を使う                    |
+| `transfer.intended.to`          | 送金先として指定されたアドレス                                   | ERC-20 Contractのアドレスとは別                                                     |
+| `transfer.intended.amountRaw`   | 送ろうとした数量の最小単位                                       | 例: `decimals: 6`なら`"1000000"`は1 token。精度を失わないよう10進整数の文字列にする |
+| `transfer.observed`             | 対象トークンの`Transfer` Event Logで確認した**実際の移動**の一覧 | 対応するEvent Logがなければ`[]`。`intended`と違う可能性がある                       |
+| `transfer.observed[].from`      | 各Event Logで確認した送金元アドレス                              | `intended.from`と異なる可能性がある                                                 |
+| `transfer.observed[].to`        | 各Event Logで確認した送金先アドレス                              | `intended.to`と異なる可能性がある                                                   |
+| `transfer.observed[].amountRaw` | 各Event Logで確認した最小単位の数量                              | 10進整数の文字列。複数Eventがあればそれぞれに入れる                                 |
+
+残りの入れ子の項目は次の意味を持つ。
+
+| フィールド                    | 何を表すか                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `failure.reason`              | 確認・推定できた失敗原因。取得できなければ`null`                                                                                             |
+| `failure.confidence`          | **失敗原因**の確かさ。`confirmed`＝直接の根拠あり、`probable`＝推定、`unknown`＝特定不能。Receiptによる取引失敗の確かさとは別                |
+| `evidence[].source`           | 情報の取得元。`transaction` / `receipt` / `event_log` / `trace` / `simulation`。`simulation`は再現の結果であり、実際の取引の直接証拠ではない |
+| `evidence[].detail`           | その取得元で確認した具体的な事実。例: `Receipt status=0`                                                                                     |
+| `recommendedActions[].action` | 次に行う確認や対応。例: `残高と承認額を確認する`                                                                                             |
+| `recommendedActions[].reason` | その対応を勧める理由。根拠のない再送を勧めない                                                                                               |
+| `explanations.developer`      | 技術的な根拠と未確定事項を含む開発者向けの説明                                                                                               |
+| `explanations.customer`       | 顧客が「何が分かり、次に何をすればよいか」を理解できる平易な説明。内部RPCや秘密情報は含めない                                                |
+
+`limitations`の具体例: `status: pending`なら「Receiptがまだないため成功・失敗を判定できません」、`status: failed`でrevert dataを取れなければ「失敗は確認できましたが、revert dataを取得できず原因は特定できません」。token metadataを取得できなければ「symbol/decimalsが不明なため、人間向け数量は表示できません」。いずれも**分からない範囲を正直に伝える情報**であり、`RPC_UNAVAILABLE`のように診断そのものを返せないToolエラーとは区別する。
+
+**フィールド間の相関ルール**
+
+各フィールドを単独で検証するだけでは、`not_found`なのに送金内容がある、といった矛盾を見逃す。以下の「T-002で検証」はZod schemaと逆方向のテスト（矛盾するJSONを拒否するテスト）に含める。
+
+| 相関する項目                                                       | 守るルール                                                                                                                                                | 矛盾する例                                       | 検証時期                        |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------- |
+| `status` ↔ `code`                                                  | `pending` / `success` / `failed`は`code: null`。`not_found` / `unsupported` / `indeterminate`は上表の対応するcodeだけを許す                               | `status: "not_found"`かつ`code: null`            | T-002（実装済み）               |
+| `status` ↔ `failure`                                               | `failed`だけ`failure`オブジェクトを持つ。それ以外は`failure: null`                                                                                        | `status: "success"`かつ`failure`あり             | T-002（実装済み）               |
+| `status: not_found` ↔ `blockNumber` / `confirmations` / `transfer` | 取引が未検出ならBlock番号・確認数・送金解析は得られないため、すべて`null`                                                                                 | `not_found`なのに`transfer`あり                  | T-002                           |
+| `status: unsupported` ↔ `transfer`                                 | MVP対象のERC-20送金として扱えないため`transfer: null`                                                                                                     | `unsupported`なのに`transfer.method: "transfer"` | T-002                           |
+| `blockNumber` ↔ `confirmations`                                    | `confirmations`が数値なら`blockNumber`も数値。Blockが不明なのに確認数だけ算出しない。Blockが分かっても確認数を取得できなければ`confirmations: null`でよい | `blockNumber: null`かつ`confirmations: 3`        | T-002                           |
+| `failure.reason` ↔ `failure.confidence`                            | 原因を取得できず`reason: null`なら`confidence: "unknown"`。`confirmed`や`probable`には具体的な原因文が必要                                                | `reason: null`かつ`confidence: "confirmed"`      | T-002                           |
+| `error.code` ↔ `error.retryable`                                   | `RPC_UNAVAILABLE`だけ`true`。`UNSUPPORTED_CHAIN`と`INTERNAL_ERROR`は`false`                                                                               | `INTERNAL_ERROR`かつ`retryable: true`            | T-002（実装済み）               |
+| MCP `isError` ↔ 応答の種類                                         | 診断結果は`isError`なし/`false`、Toolエラーは`true`。`TRANSACTION_NOT_FOUND`は診断結果でありToolエラーではない                                            | `not_found`を`isError: true`で返す               | T-002のMCPテスト、実診断はT-008 |
+
+次は**値だけでは意味を判定できない相関**。T-002のZodで文面の正しさまで判定しようとせず、診断処理を実装するチケットで検証する。
+
+- `pending`はReceipt未取得を示す。`transfer.intended`がcalldataから読める場合はあるが、Receipt由来の`transfer.observed`は空配列とし、未確認の移動を成功と表現しない（T-003〜T-005）。`pending`というstatusだけを理由に`blockNumber`を必ず`null`とはしない。TransactionからBlock番号だけ分かる場合もあり得るため。
+- `transfer.intended`は試行、`transfer.observed`は対応するEvent Logで確認した移動。両者が同じ値になるとは限らない。`observed`に項目を入れたら、そのEvent Logに基づく`evidence`も記録する（T-005・T-008）。
+- `failure.confidence: "confirmed"`は**原因**の直接根拠がある場合だけ。Receiptが失敗を示すだけなら「失敗した事実」は確かでも原因は`unknown`になり得る（T-006）。
+- 原因不明、Receipt未取得、token metadata不足など、説明に影響する欠落は`limitations`で具体的に伝える。`recommendedActions[].reason`は根拠に結び付け、`explanations.developer`と`.customer`は同じ状態・原因を示す（T-006〜T-008）。
+- `chainId`と`txHash`は診断依頼の対象と一致させる。単独の出力schemaは入力との一致を検証できないため、Toolの結合テストで確認する（T-008）。
+- 入力形式不正・未対応chainIdは支払い要求前に拒否する。x402導入後に決済境界の結合テストで確かめる（T-009・T-012）。
+
+**Toolの診断エラー形式**
+
+入力スキーマ違反の応答形式はMCP SDKに任せ、フィールド別の修正案をZodのエラーメッセージに設定する。アプリケーション上のエラーは`isError: true`にし、`content[0].text`に以下のJSON文字列を入れる。`schemaVersion`は文字列の`"1"`で固定する。`message`は利用者向け、`details`は任意の補足で、秘密鍵・RPC credential・Payment Signature・stack traceを含めない。
+
+```json
+{
+  "schemaVersion": "1",
+  "error": {
+    "code": "UNSUPPORTED_CHAIN",
+    "message": "Base SepoliaのchainId（84532）を指定してください。",
+    "retryable": false,
+    "details": [{ "field": "chainId", "reason": "unsupported_value" }]
+  }
+}
+```
+
+エラー応答の各フィールドは次の意味を持つ。
+
+| フィールド               | 何を表すか                                           |
+| ------------------------ | ---------------------------------------------------- |
+| `schemaVersion`          | エラーJSONの形式の版。正常応答と同じ`"1"`            |
+| `error`                  | 診断結果を返せなかった理由をまとめたオブジェクト     |
+| `error.code`             | Agentが分岐に使うエラー識別子（下表）                |
+| `error.message`          | 人が読んで次の行動を判断するための説明               |
+| `error.retryable`        | 一時的な原因で、後から再確認する余地があるか         |
+| `error.details`          | どの入力が問題かなどの補足。補足がなければ省略できる |
+| `error.details[].field`  | 問題のある入力項目名。例: `chainId`                  |
+| `error.details[].reason` | 機械可読な理由。例: `unsupported_value`              |
+
+`retryable`は原因が一時的で再確認の余地があるかを示すだけで、自動再実行・自動再決済の許可ではない。支払い後の結果が不明な場合は、支払い状態を確認するまで新しい支払いを作らない。MCP/JSON-RPC自体のプロトコルエラーはこのアプリケーション用形式とは別に扱う。
+
+| エラーコード        | 発生条件                                                | 利用者に伝える次の行動                                    | `retryable` | 課金境界           |
+| ------------------- | ------------------------------------------------------- | --------------------------------------------------------- | ----------- | ------------------ |
+| `UNSUPPORTED_CHAIN` | 形式は正しいがchainIdが`84532`以外                      | Base SepoliaのchainIdを指定                               | `false`     | 支払い前に拒否     |
+| `RPC_UNAVAILABLE`   | timeout、rate limit、接続失敗で必要な情報を取得できない | RPC復旧後に再確認。支払い済みか不明なら先に決済状態を確認 | `true`      | 診断結果を返さない |
+| `INTERNAL_ERROR`    | 想定外のサーバー障害で診断結果を生成できない            | 運営側で調査し、決済状態を確認                            | `false`     | 診断結果を返さない |
+
+**エラーではなく診断結果として返すもの**
+
+以下は有効な入力に対して調査を実施した結果であり、MCP Toolの`isError`を立てない。`status`と`code`を診断結果schemaに含め、原因が未確定なら断定しない。課金対象となるかは上記「課金境界」に従う。
+
+| 結果コード                     | `status`        | 判定条件と注意点                                                                                                                                                            |
+| ------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRANSACTION_NOT_FOUND`        | `not_found`     | RPCへの照会は成功したが、その時点で取引を見つけられない。永久に存在しないとは断定しない                                                                                     |
+| `UNSUPPORTED_TRANSACTION_TYPE` | `unsupported`   | 取引は見つかったが、ERC-20 `transfer` / `transferFrom`の対象外                                                                                                              |
+| `DIAGNOSIS_INDETERMINATE`      | `indeterminate` | 取得できた情報だけでは取引状態を判定できない。Receiptで実行失敗と分かるが原因不明な場合は`failed`と原因確度`unknown`を使う。取得自体に失敗した`RPC_UNAVAILABLE`とも区別する |
+
+`pending`はReceiptがまだない診断結果、`failed`はReceiptが実行失敗を示す診断結果とする。どちらもTool自体のエラーではない。
+
+**決済時のエラー（T-009〜T-012で実装）**
+
+これらは診断結果ではなく、x402が要求するHTTP/MCPの応答形式を優先する。T-002ではAgent側で区別する名称と意味を定義し、通常の`content[0].text`形式へ無理に詰め込まない。
+
+| 分類名             | 発生条件                                                                            | 次の行動                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `PAYMENT_REQUIRED` | 有効な診断依頼だが、支払いがまだない                                                | 提示されたNetwork・asset・金額・受取先をClient側の許可条件と照合してから購入を判断する |
+| `PAYMENT_REJECTED` | 署名、期限、Network、asset、金額などが条件に合わず、支払いを受け付けない            | 拒否理由を確認し、支払い条件や残高を修正する。署名を無条件に繰り返さない               |
+| `PAYMENT_FAILED`   | Facilitatorの障害、settlement失敗などで決済を完了できない、または完了を確認できない | 決済状態を確認する。結果不明のtimeoutでは自動で新しい支払いを作らない                  |
+
+支払い失敗時は診断結果を返さない。支払い後の診断障害でも新たな購入を自動で行わず、先に決済状態を確認する。
+
 **作業内容**
 
-- `chainId`を整数として検証する
-- `txHash`を32 byteの16進数として検証する
-- MVPでは`84532`以外を`UNSUPPORTED_CHAIN`として拒否する
-- 診断結果のTypeScript型とZod schemaを作る
-- エラーコード、メッセージ、再試行可否を統一する
-- schema versionをレスポンスへ含める
-
-**最低限のエラーコード**
-
-- `INVALID_INPUT`
-- `UNSUPPORTED_CHAIN`
-- `TRANSACTION_NOT_FOUND`
-- `RPC_UNAVAILABLE`
-- `UNSUPPORTED_TRANSACTION_TYPE`
-- `DIAGNOSIS_INDETERMINATE`
-- `PAYMENT_REQUIRED`
-- `PAYMENT_REJECTED`
-- `PAYMENT_FAILED`
+- 入力のTypeScript型・Zod schemaを定義し、SDKによる形式検証とTool内での未対応chainId判定を使い分ける
+- 上記の正常応答の型・Zod schemaを定義し、`status`と`code`の組合せ、`null`と空配列の使い分けを検証する
+- アプリケーションのToolエラーの型・Zod schemaに`code`、`message`、`retryable`、任意の`details`を定義する
+- 支払い前の入力拒否、診断結果、RPC障害、決済エラーの境界を文書化する
 
 **完了条件**
 
-- [ ] 不正なtxHashをRPCへ問い合わせる前に拒否できる
-- [ ] 未対応chainIdをRPCへ問い合わせる前に拒否できる
-- [ ] 正常結果とエラー結果のschema testが通る
+- [x] 不正なtxHashと未対応chainIdをRPC問い合わせ・支払い要求前に拒否できる
+- [x] 入力形式の不正はSDKの検証エラー、形式は正しいが未対応のchainIdは`UNSUPPORTED_CHAIN`として区別できる
+- [x] `not_found`、`pending`、`unsupported`をToolエラーと混同しない
+- [x] `success`、`failed`、`pending`、`not_found`、`unsupported`、`indeterminate`の正常応答とToolエラーのschema testが通り、コードと再試行可否が上表に一致する
+- [x] 上記のT-002相関ルールについて、矛盾するJSONをschemaが拒否するテストが通る
+- [x] エラー応答やログに秘密情報が入らない
 
 **依存**: T-001
 
@@ -203,7 +381,7 @@ Transactionのライフサイクルを一貫した状態へ分類します。
 
 - TransactionがありReceiptがない場合は`pending`とする
 - Receipt statusから`success`と`failed`を判定する
-- RPC障害時は`indeterminate`とする
+- RPC障害で必要情報を取得できない場合は`RPC_UNAVAILABLE`とし、診断結果の`indeterminate`とは区別する
 - blockNumberとconfirmationsを返す
 - 判定に使った事実をevidenceへ格納する
 
