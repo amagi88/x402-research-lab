@@ -51,6 +51,17 @@ Base Sepolia上のERC-20送金Transactionを診断する、有料MCP Toolを作�
 - Facilitator障害、RPC障害、内部エラーで診断結果を生成できなかった場合は、有料結果を返しません。
 - 支払い結果が不明なタイムアウトでは、自動的に新しい支払いを作って再試行しません。
 
+## 残りのチケットで固定する判断
+
+以下はMVPの要求・運用方針です。実装者はここを前提に進め、ディレクトリ構成・ライブラリ内の実装方法・テスト補助コードなどは自分で決めてよいです。価格、課金対象、対応チェーン、送金成功の意味、再購入条件を変えるときだけ、このチケットを先に更新します。
+
+- 対象はBase Sepoliaの**直接の**ERC-20 `transfer` / `transferFrom`呼び出し。Router、Multicall、Bridge等の内部呼び出しはMVP対象外とし、Transfer Logだけで送金元取引の意味を推定しません。
+- `success`はReceipt上のTransaction実行成功を表します。実際のトークン移動は対象tokenの`Transfer` Logで別途確認し、Logがなければ顧客向けにも「送金を確認できた」と断定しません。
+- `not_found`は照会時点でRPCから見つからない状態です。永久的な不存在とは言いません。RPCのtimeout・rate limit・接続失敗は`RPC_UNAVAILABLE`です。
+- x402 v2の`authorization`フローを採用します。支払いを検証してから診断を実行し、診断結果を生成できた後にsettlement、成功後にだけ結果を返します。診断不能ならsettlementしません。settlement結果が不明なら再購入しません。
+- 開発時のRPC ProviderはAlchemyのNode API（Chain APIs）、Freeプラン、Base Sepoliaを採用します。`BASE_SEPOLIA_RPC_URL`でHTTPS endpointを指定します。`.env.example`の公開RPC `https://sepolia.base.org`は初期設定例として残しますが、実行中の自動切替先にはしません。ネットワークは`eip155:84532`で、RPCの`eth_chainId`不一致は設定障害として停止します。有料RPC契約はMVPで不要です。
+- お金を動かすのはAgent側のtestnet専用購入Walletだけです。診断Serverは調査対象Transactionへの署名・再送・置換を行いません。
+
 ## MVP対象外
 
 - 独自Web画面
@@ -351,6 +362,21 @@ MCP `tools/call`の結果は`isError`なし、または`isError: false`にし、
 - RPC URLを環境変数から設定する
 - timeoutを設定し、RPC障害をTransaction失敗と区別する
 
+**MVPの判断**
+
+- TransactionとReceiptの取得は必須。Transactionが取得できReceiptだけ未取得なら`pending`、両方未検出なら`not_found`用の情報を返す。RPC応答失敗を未検出扱いにしない。
+- 現在Block番号、token metadata、traceなど補助情報の取得失敗だけで、判定可能なTransaction全体を失敗させない。欠けた項目は`null`と`limitations`で示す。必須情報の取得失敗は`RPC_UNAVAILABLE`。
+- 診断処理の通常時60秒以内を目標に、RPCごとにtimeoutを設ける。無料公開RPCの制限下で完了できない場合は、成功したふりをせず障害を返す。
+
+**Alchemyのセットアップと取得方針**
+
+- Alchemy Dashboardでアプリを作成し、Node API（Chain APIs）のBase Sepolia HTTPS endpointを取得する。Base MainnetやEthereum Sepoliaを選ばない。
+- ローカル環境の`BASE_SEPOLIA_RPC_URL`に`https://base-sepolia.g.alchemy.com/v2/<API_KEY>`を設定する。APIキーはチャット・チケット・Gitへ記載せず、URLを含むSDK例外もログ出力前に秘匿する。
+- 接続時に`eth_chainId`が`84532`（hex `0x14a34`）であることを検証する。
+- Transaction、Receipt、Block、現在Block番号は標準JSON-RPCで取得する。T-005のtoken metadataは`eth_call`でbest effort取得し、Transfer Logは対象Receiptから解析する。Alchemy独自のToken API・Transfers APIは必須にしない。
+- Freeプランから開始する。rate limit時の読み取り再試行は回数と待機時間に上限を設け、診断時間の予算内に収める。必須情報の取得失敗を`not_found`へ変換しない。
+- RPCは情報取得用であり、x402 Facilitatorの代わりではない。T-009以降のFacilitator設定は別途必要。
+
 **完了条件**
 
 - [ ] 実在するtxHashからTransactionとReceiptを取得できる
@@ -385,6 +411,12 @@ Transactionのライフサイクルを一貫した状態へ分類します。
 - blockNumberとconfirmationsを返す
 - 判定に使った事実をevidenceへ格納する
 
+**MVPの判断**
+
+- Receiptのstatusが判明したらTransaction全体は`success` / `failed`。ERC-20対象外と判明した取引は`unsupported`にするが、Receiptの実行結果を「送金成功」と読み替えない。
+- Transactionが見つかりReceiptがなければ`pending`。双方が正常照会で未検出なら`not_found`。必要な値は取得できたがstatusを判定できない場合だけ`indeterminate`とし、RPC障害とは区別する。
+- confirmationsは現在Block番号と取引のblockNumberが両方あるとき`currentHead - blockNumber + 1`で算出し、それ以外は`null`。数値からfinalityや取り消し不能を保証しない。
+
 **完了条件**
 
 - [ ] 各状態のunit testが通る
@@ -409,6 +441,12 @@ Transactionのライフサイクルを一貫した状態へ分類します。
 - 大きな整数をJavaScriptの`number`へ変換しない
 - calldata上の「意図」とEvent Log上の「実際の移動」を分ける
 
+**MVPの判断**
+
+- `tx.to`が直接呼び出されたtoken Contractで、calldataの先頭が`transfer` / `transferFrom`のselectorであり、引数を復号できる取引だけを対象にする。それ以外は`unsupported`。Contractが標準どおり動作する保証はしない。
+- `observed`にはそのReceipt内で`address === tx.to`かつ標準`Transfer` topicのLogだけを入れる。引数の値とLogの値が違っても上書きせず、それぞれ示す。Receiptが失敗または未取得なら`observed: []`。
+- symbol/decimalsが不明なら`null`とし、`amountRaw`は常に10進文字列で保持する。名称からtokenの正当性を保証しない。
+
 **完了条件**
 
 - [ ] 成功した`transfer`と`transferFrom`を解析できる
@@ -427,12 +465,24 @@ Transactionのライフサイクルを一貫した状態へ分類します。
 
 **作業内容**
 
-- Receipt statusによる実行失敗を`confirmed`とする
+- Receipt statusで取引の実行失敗を確認する。失敗原因の`confirmed`は直接の根拠があるときだけにする
 - RPCが対応する場合はrevert dataまたはtraceを取得する
 - standardなrevert reasonとcustom errorをdecodeする
 - シミュレーションで再現した原因を直接証拠と区別する
 - gasUsedとgas limitだけでout-of-gasを断定しない
 - 原因を取得できない場合は`unknown`とlimitationsを返す
+
+**MVPの判断**
+
+- `failure.confidence`は失敗**原因**の確度。Receiptの`status=0`だけなら失敗の事実は確定するが原因は`unknown`。履歴実行のtrace/revert dataが原因を直接示す場合のみ`confirmed`。
+- 後から行うsimulationは実行当時と状態が違う可能性があるため、原因が再現しても最大`probable`。trace非対応RPCでも診断を続け、原因不明と取得上の制約を示す。
+- gasUsedがgas limitに近いことだけからout-of-gasと断定しない。
+
+**Alchemyのtrace利用方針**
+
+- 2026-09-27確認の公式料金表では、FreeプランのNode APIとFull Archive Dataは利用可能だが、Debug API・Trace APIはPAYG以上。履歴データへのアクセスと実行traceへのアクセスを混同しない。
+- Freeプランではtraceを必須にしない。未契約・非対応・取得失敗の場合は、その制約を`limitations`に残し、直接の原因根拠がなければ`failure.confidence: unknown`とする。シミュレーションの根拠だけなら最大`probable`。
+- 将来有料化するときは`debug_traceTransaction`（`callTracer`）を候補とし、Base Sepoliaの対象endpointで利用できること、対象の履歴範囲、実際の失敗txからrevert dataを取得できることを確認してから有効化する。有料プランへの変更は自動で行わない。
 
 **完了条件**
 
@@ -457,6 +507,13 @@ Transactionのライフサイクルを一貫した状態へ分類します。
 - 原因不明の場合は追加確認事項を提示する
 - 二重送金の可能性がある再送を無条件に推奨しない
 - 顧客説明に内部RPC、stack trace、秘密情報を含めない
+
+**MVPの判断：状態ごとの案内**
+
+- `success`かつ対象`Transfer` Logあり: 取引成功と確認できた移動を示す。`success`でもLogなし: 取引実行は成功、送金は未確認と示し、token ContractとLogの追加確認を案内する。
+- `failed`: 原因と確度を示し、根拠のある設定確認・修正を案内する。原因`unknown`なら追加調査またはエンジニアへの引き継ぎ。いずれも無条件の再送は勧めない。
+- `pending`: 時間を置いて同一txHashを再確認し、重複送金を避ける。`not_found`: chainIdとtxHashを確認し、RPC反映を待って再確認する。`unsupported` / `indeterminate`: 手動調査へ引き継ぐ。
+- 顧客向け文面はサポート担当者が確認してから利用する。Agentから顧客へ自動送信しない。
 
 **完了条件**
 
@@ -483,6 +540,17 @@ x402を追加する前に、商品本体であるTransaction診断を安定さ�
 - fixture txHashと期待結果を文書化する
 - 60秒以内の応答を確認する
 
+**MVPの受け入れ基準**
+
+- ネットワーク不要のmock testを必須にし、各status・意図と観測の違い・原因確度・顧客向けの断定禁止・T-002 schemaを検証する。
+- 実RPCのintegration testは明示的な環境設定時だけ実行する。実txHash fixtureは利用時に固定し、Block増加で変わるconfirmationsの値は固定スナップショットで比較しない。
+- 60秒はTool handlerが診断を開始してから結果生成までを測る。x402の支払い交渉・settlement時間は含めない。
+
+**Alchemy接続の検証**
+
+- mock testを通常の検証とし、Alchemyへの実接続は明示的にintegration testを有効化した場合だけ行う。APIキーのない環境でもmock testを実行できるようにする。
+- 実接続ではchainId、既知のTransaction・Receipt取得を確認する。traceの実接続検証は対応プランを設定したときだけ行い、未契約の場合は制約を返す経路をmockで検証する。
+
 **完了条件**
 
 - [ ] unit testがネットワーク接続なしで再現できる
@@ -508,6 +576,13 @@ Transaction診断を、1回ごとに購入できるMCP Toolへ変えます。
 - Tool handlerをpayment wrapperで保護する
 - 支払い検証前、settlement失敗時に有料結果を返さない
 
+**MVPの決済契約**
+
+- x402 v2 MCP transportの支払い要求をTool結果の`isError: true`と`structuredContent.PaymentRequired`で返す。購入側は次の呼び出しの`_meta["x402/payment"]`に署名済みpayloadを渡す。成功時は`_meta["x402/payment-response"]`を確認する。HTTP専用の402処理をMCP Toolへそのまま流用しない。
+- `authorization`フローでverify → 診断 → settle → 結果返却。診断Handlerが`RPC_UNAVAILABLE`や`INTERNAL_ERROR`を返した場合はsettleせず、settlement失敗時は診断結果を渡さない。
+- 受け付ける決済条件はBase Sepolia `eip155:84532`、test USDC `0x036CbD53842c5426634e7929541eC2318f3dCF7e`、`10000` atomic units（0.01 USDC）、設定済み`PAY_TO_ADDRESS`の1組だけ。Facilitatorがこの組合せをサポートしなければ停止し、別assetや価格に自動切替しない。
+- `PAY_TO_ADDRESS`は運用者から一度受け取る必須設定。値を推測したりコードに埋め込んだりしない。
+
 **完了条件**
 
 - [ ] 未払い呼び出しに支払い要求が返る
@@ -523,7 +598,7 @@ Transaction診断を、1回ごとに購入できるMCP Toolへ変えます。
 ## [ ] T-010: Agent側のx402対応MCP Clientを作る
 
 **目的**  
-既存AI Agentが、許可された条件の診断だけを安全に購入できるようにします。
+既存AI Agentへ組み込める購入側Clientを作り、許可された条件の診断だけを安全に購入できるようにします。
 
 **作業内容**
 
@@ -532,6 +607,12 @@ Transaction診断を、1回ごとに購入できるMCP Toolへ変えます。
 - Tool名、Network、asset、価格、payTo、接続先をコードで検査する
 - 1回上限0.01 USDC、セッション上限0.10 USDC、最大10回にする
 - 支払い結果不明時の自動再購入を禁止する
+
+**MVPの購入ポリシー**
+
+- 署名前に接続先URL、Tool名、network、asset、amount、payToを完全一致で検査する。許可条件はT-009の1組だけとし、表示文だけで判断しない。
+- 1回10000 atomic units、1セッション最大100000 atomic unitsかつ新しいauthorization最大10件。安全側に、署名を試みた分も上限に算入し、プロセス再起動でセッションをリセットする。DBを使った恒久的な予算管理はMVP対象外。
+- 不明な支払い結果への自動再購入・上限の自動引き上げは禁止。秘密鍵は専用testnet Walletのものをローカル環境変数またはsecret storeに置く。
 
 **完了条件**
 
@@ -547,14 +628,13 @@ Transaction診断を、1回ごとに購入できるMCP Toolへ変えます。
 ## [ ] T-011: Base Sepoliaでx402決済E2Eを通す
 
 **目的**  
-AgentのTool呼び出しから決済、診断結果取得までを実testnetで確認します。
+購入側ClientのTool呼び出しから決済、診断結果取得までを実testnetで確認します。
 
-**事前準備**
+**一度だけ必要な外部情報と実行条件**
 
-- 受取用EVM address
-- 購入用の専用testnet Wallet
-- 購入WalletのBase SepoliaテストUSDC
-- 利用するFacilitator URL
+- 運用者が`PAY_TO_ADDRESS`、testnet専用購入Wallet、必要なtest USDC、使用するFacilitator URLを用意する。秘密鍵はチャット・チケット・Gitに記載せず、ローカルの秘密設定へ入力する。
+- FacilitatorとRPCが指定のnetwork/asset/schemeを扱えることを実行前に確認する。選んだ署名方式でtestnet ETHが必要なら購入Walletに用意する。
+- 実決済は最小の1回で確認する。Agentへの本番接続情報はT-013の事前条件とし、このチケットのstandalone clientで決済経路を先に検証する。
 
 **完了条件**
 
@@ -579,6 +659,12 @@ AgentのTool呼び出しから決済、診断結果取得までを実testnetで�
 - 未許可Network、asset、payTo、価格
 - Facilitator timeout、settlement失敗、Tool実行失敗
 - 支払い後の応答timeout、セッション上限超過
+
+**MVPの異常時ポリシー**
+
+- MCPのPaymentRequired / 支払い拒否 / settlement失敗をT-002の診断結果や`RPC_UNAVAILABLE`と混同しない。無効入力は支払い要求前に拒否する。
+- settlementまたは支払い後応答の成否が不明なら、新しいauthorizationを自動作成しない。Facilitatorの結果、支払い応答、チェーン上のsettlementを確認してから人間が再試行を判断する。
+- 履歴DBも自動返金もないMVPでは、二重課金の疑いを自動で解決したと表示しない。課金済みなのに診断結果がない場合は運用者調査へ渡す。
 
 **完了条件**
 
@@ -610,6 +696,12 @@ AgentのTool呼び出しから決済、診断結果取得までを実testnetで�
 3. サポート担当者が顧客向け説明を確認する
 4. 原因不明または技術対応が必要ならエンジニアへ引き継ぐ
 
+**MVPの受け入れ前提**
+
+- 既存AI Agentの製品名・接続方式・MCP設定権限・購入Walletの組み込み方法を運用者から一度だけ受け取る。T-010のstandalone MCP Clientは決済テスト用であり、既存Agentでの受け入れ確認の代わりにしない。
+- Agentが勝手に購入上限を超えないこと、設定済みの支払い条件を購入前に検査すること、サポート担当者が顧客向け文面を確認できることを確認する。顧客への自動送信は行わない。
+- 既存AgentがMCP/x402支払いpayloadを扱えない場合は、その事実をブロッカーとして記録し、別Agentへの変更や自動購入条件の緩和を実装者だけで決めない。
+
 **作業内容**
 
 - 既存AI AgentへMCP接続設定を追加する
@@ -629,6 +721,16 @@ AgentのTool呼び出しから決済、診断結果取得までを実testnetで�
 
 **依存**: T-012
 
+## 実装時に一度だけ必要な情報
+
+| いつ        | 運用者から受け取るもの                                          | 扱い                                                                 |
+| ----------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| T-009開始前 | testnet USDCの受取先`PAY_TO_ADDRESS`                            | 公開EVM address。環境設定へ記入                                      |
+| T-011開始前 | testnet専用購入Wallet、必要なtest USDC、使用するFacilitator URL | 秘密鍵はチャットやチケットで受け取らず、購入者側の秘密設定だけに保存 |
+| T-013開始前 | 既存AI Agentの製品・MCP接続方法・設定権限                       | 接続手順を一度確定し、READMEに残す                                   |
+
+これらは未定の「機能要件」ではなく、実環境の値です。必要な段階で一度だけ確認し、以後は設定を再利用します。値がなくても、それ以前のチケットは進められます。
+
 ## 実装後に判断する事項
 
 - Mainnetでの価格
@@ -641,6 +743,10 @@ AgentのTool呼び出しから決済、診断結果取得までを実testnetで�
 
 ## 参考資料
 
-- x402 MCP公式ガイド: <https://github.com/x402-foundation/x402/blob/main/docs/guides/mcp-server-with-x402.md>
+- x402 v2 MCP transport仕様: <https://github.com/x402-foundation/x402/blob/main/specs/transports-v2/mcp.md>
 - x402 v2仕様: <https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md>
 - x402公式リポジトリ: <https://github.com/x402-foundation/x402>
+
+- Alchemy Base API: <https://www.alchemy.com/docs/base/base-api-overview>
+- Alchemy料金・機能比較: <https://www.alchemy.com/docs/reference/pricing-plans>
+- Alchemy Debug API: <https://www.alchemy.com/docs/reference/debug-api-quickstart>
