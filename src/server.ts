@@ -3,7 +3,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { createDiagnosisServer } from './diagnosisServer.ts';
 
-const handler = createMcpHandler(createDiagnosisServer);
+const handler = createMcpHandler(() => createDiagnosisServer());
 const app = createMcpExpressApp();
 const node = toNodeHandler(handler);
 

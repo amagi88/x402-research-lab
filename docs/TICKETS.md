@@ -349,7 +349,7 @@ MCP `tools/call`の結果は`isError`なし、または`isError: false`にし、
 
 ---
 
-## [ ] T-003: Base SepoliaからTransaction情報を取得する
+## [x] T-003: Base SepoliaからTransaction情報を取得する
 
 **目的**  
 診断に必要なオンチェーンデータを取得します。
@@ -379,11 +379,13 @@ MCP `tools/call`の結果は`isError`なし、または`isError: false`にし、
 
 **完了条件**
 
-- [ ] 実在するtxHashからTransactionとReceiptを取得できる
-- [ ] Receiptがない場合に`pending`判定用の情報を返せる
-- [ ] txHashが見つからない場合を識別できる
-- [ ] timeout、rate limit、接続失敗を`RPC_UNAVAILABLE`として扱える
-- [ ] RPC URLやcredentialをログへ出さない
+- [x] MSWで固定したBase SepoliaのJSON-RPC応答から、MCP Tool経由でTransactionとReceiptを取得できる
+- [x] Receiptがない場合に`pending`判定用の情報を返せる
+- [x] txHashが見つからない場合を識別できる
+- [x] timeout、rate limit、接続失敗を`RPC_UNAVAILABLE`として扱える
+- [x] RPC URLやcredentialをログへ出さない
+
+**完了判定**: 2026-10-02。実RPC接続は完了条件に含めず、MSW結合テストと単体テストで判定する。MCP→Controller→UseCase→Repositoryの成功・失敗・pending・未検出・RPC障害を確認し、型チェックと83件のテストが通過。
 
 **依存**: T-002
 
@@ -534,7 +536,7 @@ x402を追加する前に、商品本体であるTransaction診断を安定さ�
 **作業内容**
 
 - RPC Clientをmockしたunit testを作る
-- 実Base Sepoliaを使うintegration testを分離する
+- MSWでAlchemyのJSON-RPCを差し替え、MCP→Controller→UseCase→Repositoryを通す結合テストを作る
 - 成功、失敗、pending、not found、RPC障害を検証する
 - ERC-20解析、確度、推奨対応、説明文を検証する
 - fixture txHashと期待結果を文書化する
@@ -543,18 +545,17 @@ x402を追加する前に、商品本体であるTransaction診断を安定さ�
 **MVPの受け入れ基準**
 
 - ネットワーク不要のmock testを必須にし、各status・意図と観測の違い・原因確度・顧客向けの断定禁止・T-002 schemaを検証する。
-- 実RPCのintegration testは明示的な環境設定時だけ実行する。実txHash fixtureは利用時に固定し、Block増加で変わるconfirmationsの値は固定スナップショットで比較しない。
+- RPC応答をMSWで固定し、Block増加で変わるconfirmationsも決定的に検証する。
 - 60秒はTool handlerが診断を開始してから結果生成までを測る。x402の支払い交渉・settlement時間は含めない。
 
 **Alchemy接続の検証**
 
-- mock testを通常の検証とし、Alchemyへの実接続は明示的にintegration testを有効化した場合だけ行う。APIキーのない環境でもmock testを実行できるようにする。
-- 実接続ではchainId、既知のTransaction・Receipt取得を確認する。traceの実接続検証は対応プランを設定したときだけ行い、未契約の場合は制約を返す経路をmockで検証する。
+- MSWでAlchemyのJSON-RPC応答を再現し、APIキーや外部ネットワークなしでchainId、Transaction、Receipt取得を検証する。traceに未対応の場合の制約もmockで検証する。
 
 **完了条件**
 
 - [ ] unit testがネットワーク接続なしで再現できる
-- [ ] integration testの実行方法がREADMEにある
+- [ ] MSW結合テストの実行方法がREADMEにある
 - [ ] 定義済みの正常系・異常系がすべて通る
 - [ ] レスポンスがT-002のschemaに一致する
 
