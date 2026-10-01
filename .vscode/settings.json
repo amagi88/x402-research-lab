@@ -1,5 +1,5 @@
 {
-  "cSpell.words": ["modelcontextprotocol"],
+  "cSpell.words": ["modelcontextprotocol", "viem"],
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode"
 }
