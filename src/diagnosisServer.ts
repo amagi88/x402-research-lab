@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import type { GetTxInformationController } from './controller/getTxInformation.ts';
 import { toDiagnosisOutput } from './controller/toDiagnosisOutput.ts';
 import { createGetTxInformationController } from './composition/createGetTxInformationController.ts';
-import { McpBaseError, UnsupportedChainError, toToolErrorResult } from './errors/McpErrors.ts';
+import { UnsupportedChainError, toToolErrorResult } from './errors/McpErrors.ts';
 import { diagnoseTransactionInputSchema } from './validator/diagnoseTransactionInputSchema.ts';
 
 const toolName = 'diagnose_transaction';
@@ -28,9 +28,6 @@ export function createDiagnosisServer(
         const result = toDiagnosisOutput(txHash, snapshot);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
       } catch (error) {
-        if (!(error instanceof McpBaseError)) {
-          console.error('Unexpected diagnose_transaction failure');
-        }
         return toToolErrorResult(error);
       }
     },

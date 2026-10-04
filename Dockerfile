@@ -4,4 +4,5 @@ COPY package*.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
-CMD ["npm", "run", "dev"]
+ENV NODE_ENV=production
+CMD ["node", "src/server.ts"]

@@ -90,3 +90,38 @@ docker compose down
 ```
 
 `src/client.ts`、`src/mcp.ts`、`/research` は旧ウォレット調査用のコードです。現行の診断Toolの動作確認には上記の `/mcp` を使います。
+
+## サーバーログ
+
+ログ処理は `src/utils/logging/` に分離しています。UTCのISO時刻、文字列ログレベル、顧客IP、顧客ID、実行API、結果、リクエストIDを1行のJSONとして標準出力に出します。追加依存はなく、Node.jsのAsyncLocalStorageで並行リクエストの情報を分離します。
+
+- `http.completed`: HTTPステータスと処理時間。HTTPの送信完了を表します。
+- `rpc.completed`: MCPの実際の結果。`api` は例として `tools/call:diagnose_transaction`。HTTP 200でも `isError` / JSON-RPCエラーを判別します。JSON/SSEの両方に対応します。
+- 同一呼び出しは `requestId` で関連付けます。このIDはサーバー側で生成し、`X-Request-Id`レスポンスヘッダーにも返します。
+- 入力検証エラー・非対応チェーン・HTTP 4xxは `info / business_error`。`RPC_UNAVAILABLE`、`INTERNAL_ERROR`、JSON-RPC内部エラー、HTTP 5xxは `error / system_error`。切断は `warn / aborted` です。取引診断の `failed` / `not_found` はAPI処理の失敗ではありません。
+- `LOG_LEVEL` は最小出力レベルで、既定は `info`。業務ログを保存する運用では `info` を使います。
+
+現時点では認証機能がないため `customerId` は `null` です。将来、MCPの検証済み `authInfo.clientId` が渡されれば自動設定します。別の顧客ID体系の場合は、認証後に `setLogCustomerId(verifiedCustomerId)` を呼びます。未検証の `X-Customer-Id` などのヘッダーは採用しません。リクエスト外の起動・終了ログは顧客情報とAPIが `null` になります。
+
+任意の処理から追加ログを出せます。リクエスト中は顧客情報とAPIを自動継承します。
+
+```ts
+import { logger } from '../utils/logging/logger.ts';
+
+logger.info('diagnosis.step_completed', { result: 'success' });
+logger.debug('diagnosis.step_started');
+logger.error('diagnosis.dependency_failed', {
+  result: 'system_error',
+  errorCode: 'RPC_UNAVAILABLE',
+});
+```
+
+イベント名には固定文字列を使ってください。追加フィールドは `result`、`errorCode`、`statusCode`、`durationMs`、`rpcId` に限定しています。ヘッダー、入力引数、応答本文、生の例外、APIキー付きRPC URLはログに保存しません。MCPレスポンスの解析バッファは1MiBで制限し、超過時は `rpc.log_payload_too_large` を記録して当該結果の解析を省略します（クライアントへの応答は変更しません）。
+
+### AWSでの運用
+
+コンテナはwatchを使わずNode.jsを直接起動し、SIGTERMでHTTP接続の終了を待ちます（最大10秒）。ローカルの通常起動には `npm start` も使えます。
+
+標準出力のJSONは、ECS/Fargateではタスク定義の `awslogs` ログドライバーを設定してCloudWatch Logsへ収集できます。[AWS公式の設定手順](https://docs.aws.amazon.com/ja_jp/AmazonECS/latest/developerguide/using_awslogs.html)を参照してください。AWSリソースの作成・デプロイはこの変更には含みません。配備時にロググループ、保存期間、閲覧権限を設定してください。
+
+ALB等の背後では `TRUST_PROXY` に実際のプロキシIP/CIDR（カンマ区切り）を設定し、サーバーへの通信元もそのロードバランサーに制限します。未設定時は接続元IPを使い、偽装可能な `X-Forwarded-For` を無視します。`MCP_ALLOWED_HOSTS` に公開APIのホスト名とヘルスチェックで使用するホストを追加してください。`SERVICE_NAME` でログ上のサービス名を変更できます。
