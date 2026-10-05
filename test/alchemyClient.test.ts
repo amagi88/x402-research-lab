@@ -1,5 +1,5 @@
 import { expect, test } from '@jest/globals';
-import { AlchemyClient, createAlchemyClient } from '../src/infrastracture/AlchemyClient.ts';
+import { AlchemyClient, createAlchemyClient } from '../src/infrastructure/AlchemyClient.ts';
 import { UrlError } from '../src/errors/CommonErrors.ts';
 
 test.each([

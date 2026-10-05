@@ -1,5 +1,5 @@
 import { TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
-import type { AlchemyClient, AlchemyRpc } from '../infrastracture/AlchemyClient.ts';
+import type { AlchemyClient, AlchemyRpc } from '../infrastructure/AlchemyClient.ts';
 import type { Block, Hex, Receipt, Transaction } from '../domain/Transaction.ts';
 import type { TransactionRepository } from '../domain/TransactionRepository.ts';
 import { TransactionDataUnavailableError } from '../domain/TransactionErrors.ts';

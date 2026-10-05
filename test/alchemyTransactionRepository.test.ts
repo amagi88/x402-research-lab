@@ -1,6 +1,6 @@
 import { expect, jest, test } from '@jest/globals';
 import { TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
-import type { AlchemyClient, AlchemyRpc } from '../src/infrastracture/AlchemyClient.ts';
+import type { AlchemyClient, AlchemyRpc } from '../src/infrastructure/AlchemyClient.ts';
 import { AlchemyTransactionRepository } from '../src/repository/AlchemyTransactionRepository.ts';
 import { TransactionDataUnavailableError } from '../src/domain/TransactionErrors.ts';
 

@@ -3,11 +3,14 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { createDiagnosisServer } from '../diagnosisServer.ts';
+import { createGetTxInformationController } from './createGetTxInformationController.ts';
 import { getLogContext, setLogCustomerId, validateLogLevel } from '../utils/logging/logger.ts';
 import { requestLogging, httpErrorHandler } from '../utils/logging/http.ts';
 import { withMcpLogging } from '../utils/logging/mcp.ts';
 
-export function createApp(createServer = createDiagnosisServer) {
+export function createApp(
+  createServer = () => createDiagnosisServer(createGetTxInformationController),
+) {
   validateLogLevel();
   const app = express();
   app.disable('x-powered-by');

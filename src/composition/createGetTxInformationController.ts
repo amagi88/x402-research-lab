@@ -1,5 +1,5 @@
 import { GetTxInformationController } from '../controller/getTxInformation.ts';
-import { AlchemyClient, createAlchemyClient } from '../infrastracture/AlchemyClient.ts';
+import { AlchemyClient, createAlchemyClient } from '../infrastructure/AlchemyClient.ts';
 import { AlchemyTransactionRepository } from '../repository/AlchemyTransactionRepository.ts';
 import { GetTxInformationUseCase } from '../usecase/GetTxInformationUseCase.ts';
 

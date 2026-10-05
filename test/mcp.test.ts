@@ -8,7 +8,9 @@ import { toolErrorSchema } from '../src/validator/toolErrorSchema.ts';
 const txHash = '0x' + 'a'.repeat(64);
 async function withMcpClient(run: (client: Client) => Promise<void>): Promise<void> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = createDiagnosisServer();
+  const server = createDiagnosisServer(() => {
+    throw new Error('Unexpected controller creation');
+  });
   const client = new Client({ name: 'diagnosis-test-client', version: '1.0.0' });
 
   try {
